@@ -1,0 +1,52 @@
+{
+  "gestures": [
+    {
+      "id": "hello",
+      "label": "HELLO",
+      "description": "Open palm facing camera",
+      "emoji": "👋",
+      "color": "#00D4FF",
+      "glowColor": "rgba(0, 212, 255, 0.25)"
+    },
+    {
+      "id": "bye",
+      "label": "BYE",
+      "description": "Open palm with wave motion",
+      "emoji": "✋",
+      "color": "#8B5CF6",
+      "glowColor": "rgba(139, 92, 246, 0.25)"
+    },
+    {
+      "id": "thank_you",
+      "label": "THANK YOU",
+      "description": "Flat hand moved forward from chin",
+      "emoji": "🙏",
+      "color": "#F59E0B",
+      "glowColor": "rgba(245, 158, 11, 0.25)"
+    },
+    {
+      "id": "help_me",
+      "label": "HELP ME",
+      "description": "Raised fist upward",
+      "emoji": "✊",
+      "color": "#EF4444",
+      "glowColor": "rgba(239, 68, 68, 0.25)"
+    },
+    {
+      "id": "yes",
+      "label": "YES",
+      "description": "Thumbs up gesture",
+      "emoji": "👍",
+      "color": "#10B981",
+      "glowColor": "rgba(16, 185, 129, 0.25)"
+    },
+    {
+      "id": "no",
+      "label": "NO",
+      "description": "V-sign with side-to-side wag",
+      "emoji": "✌️",
+      "color": "#F43F5E",
+      "glowColor": "rgba(244, 63, 94, 0.25)"
+    }
+  ]
+}

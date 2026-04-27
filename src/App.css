@@ -1,0 +1,155 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--color-bg-primary);
+}
+
+.app__main {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Camera Panel — Left side (60%) */
+.app__camera-panel {
+  flex: 0 0 60%;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-glass-border);
+}
+
+.app__camera-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Output Panel — Right side (40%) */
+.app__output-panel {
+  flex: 0 0 40%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 0;
+  border: none;
+  border-left: none;
+  background: var(--color-bg-tertiary);
+}
+
+.app__output-divider {
+  height: 1px;
+  background: var(--color-glass-border);
+  margin: 0 var(--space-6);
+}
+
+/* Error State */
+.app__error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  width: 100%;
+  height: 100%;
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.app__error-icon {
+  color: var(--color-text-muted);
+  opacity: 0.5;
+}
+
+.app__error-title {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.app__error-message {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  max-width: 400px;
+  line-height: 1.6;
+}
+
+.app__error-retry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-glass);
+  border: 1px solid var(--color-cyan);
+  border-radius: var(--radius-full);
+  color: var(--color-cyan);
+  font-weight: var(--font-weight-semibold);
+  transition: all var(--transition-base);
+}
+
+.app__error-retry:hover {
+  background: rgba(0, 212, 255, 0.1);
+  box-shadow: var(--shadow-glow-cyan);
+}
+
+/* Loading Overlay */
+.app__loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  background: rgba(6, 10, 20, 0.85);
+  z-index: var(--z-overlay);
+  animation: fadeIn var(--transition-base);
+}
+
+.app__loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--color-glass-border);
+  border-top-color: var(--color-cyan);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.app__loading-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Responsive — Tablet */
+@media (max-width: 1024px) {
+  .app__main {
+    flex-direction: column;
+  }
+
+  .app__camera-panel {
+    flex: 0 0 55%;
+    border-right: none;
+    border-bottom: 1px solid var(--color-glass-border);
+  }
+
+  .app__output-panel {
+    flex: 1;
+  }
+}
+
+/* Responsive — Mobile */
+@media (max-width: 640px) {
+  .app__camera-panel {
+    flex: 0 0 50%;
+  }
+}
