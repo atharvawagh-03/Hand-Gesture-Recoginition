@@ -4,6 +4,9 @@
  * MediaPipe HandLandmarker returns 21 3D landmarks per hand.
  * This module provides normalization, angle calculation, and
  * finger state estimation from raw landmark data.
+ * 
+ * IMPROVED: Uses dual-method finger curl detection (angle-based + 
+ * distance-based) for much higher accuracy across varied hand poses.
  */
 
 // MediaPipe Hand Landmark indices
@@ -78,27 +81,56 @@ export function calculateAngle(p1, p2, p3) {
 }
 
 /**
- * Determine if a finger is extended (straight) or curled.
+ * Determine if a finger is extended using a HYBRID approach:
+ * 1) Angle-based: PIP and DIP joint angles
+ * 2) Distance-based: Is the fingertip farther from wrist than the PIP joint?
+ * 
+ * The distance check is much more reliable for varied hand orientations.
  * Returns: 'extended' | 'half_curled' | 'curled'
  */
 export function getFingerCurl(landmarks, fingerJoints) {
   const [mcp, pip, dip, tip] = fingerJoints.map(i => landmarks[i]);
+  const wrist = landmarks[LANDMARK.WRIST];
 
-  // Angle at PIP joint — primary indicator of curl
+  // --- Method 1: Angle-based ---
   const pipAngle = calculateAngle(mcp, pip, dip);
-  // Angle at DIP joint
   const dipAngle = calculateAngle(pip, dip, tip);
-
-  // Average curl angle
   const avgAngle = (pipAngle + dipAngle) / 2;
 
-  if (avgAngle > 140) return 'extended';
-  if (avgAngle > 90) return 'half_curled';
+  // --- Method 2: Distance-based (more reliable for many orientations) ---
+  // If the tip is farther from the wrist than the MCP, finger is likely extended
+  const tipToWrist = distance2D(tip, wrist);
+  const mcpToWrist = distance2D(mcp, wrist);
+  const tipToMcp = distance2D(tip, mcp);
+  const pipToMcp = distance2D(pip, mcp);
+
+  // Is tip above PIP? (in y-coordinate, lower y = higher on screen)
+  // For upward fingers, tip.y < pip.y
+  // But this is orientation dependent, so use distance ratio instead
+  const tipFarther = tipToWrist > mcpToWrist * 0.85;
+  const tipExtended = tipToMcp > pipToMcp * 0.7;
+
+  // --- Combine both methods ---
+  let score = 0;
+
+  // Angle contribution
+  if (avgAngle > 150) score += 2;
+  else if (avgAngle > 130) score += 1.5;
+  else if (avgAngle > 110) score += 1;
+  else if (avgAngle > 80) score += 0.5;
+
+  // Distance contribution
+  if (tipFarther && tipExtended) score += 2;
+  else if (tipFarther || tipExtended) score += 1;
+
+  if (score >= 3) return 'extended';
+  if (score >= 1.5) return 'half_curled';
   return 'curled';
 }
 
 /**
  * Special thumb curl detection (thumb mechanics differ from other fingers).
+ * Uses multiple heuristics for reliability.
  */
 export function getThumbCurl(landmarks) {
   const wrist = landmarks[LANDMARK.WRIST];
@@ -106,22 +138,44 @@ export function getThumbCurl(landmarks) {
   const mcp = landmarks[LANDMARK.THUMB_MCP];
   const ip = landmarks[LANDMARK.THUMB_IP];
   const tip = landmarks[LANDMARK.THUMB_TIP];
+  const indexMcp = landmarks[LANDMARK.INDEX_MCP];
+  const pinkyMcp = landmarks[LANDMARK.PINKY_MCP];
 
-  // Check if thumb tip is far from palm center
+  // Palm center
   const palmCenter = {
-    x: (landmarks[LANDMARK.INDEX_MCP].x + landmarks[LANDMARK.PINKY_MCP].x) / 2,
-    y: (landmarks[LANDMARK.INDEX_MCP].y + landmarks[LANDMARK.PINKY_MCP].y) / 2,
-    z: ((landmarks[LANDMARK.INDEX_MCP].z || 0) + (landmarks[LANDMARK.PINKY_MCP].z || 0)) / 2,
+    x: (indexMcp.x + pinkyMcp.x + wrist.x) / 3,
+    y: (indexMcp.y + pinkyMcp.y + wrist.y) / 3,
+    z: ((indexMcp.z || 0) + (pinkyMcp.z || 0) + (wrist.z || 0)) / 3,
   };
 
-  const tipToPalm = distance(tip, palmCenter);
-  const mcpToPalm = distance(mcp, palmCenter);
+  // Distance checks
+  const tipToPalm = distance2D(tip, palmCenter);
+  const mcpToPalm = distance2D(mcp, palmCenter);
+  const tipToIndex = distance2D(tip, indexMcp);
+  const wristToIndex = distance2D(wrist, indexMcp);
 
-  // Angle-based check
+  // Angle check
   const angle = calculateAngle(cmc, mcp, ip);
+  const angle2 = calculateAngle(mcp, ip, tip);
+  const totalAngle = (angle + angle2) / 2;
 
-  if (angle > 140 && tipToPalm > mcpToPalm * 0.8) return 'extended';
-  if (angle > 100) return 'half_curled';
+  let score = 0;
+
+  // Angle-based
+  if (totalAngle > 140) score += 2;
+  else if (totalAngle > 120) score += 1.5;
+  else if (totalAngle > 100) score += 1;
+  else score += 0.3;
+
+  // Distance-based: thumb tip far from palm center
+  if (tipToPalm > mcpToPalm * 1.0) score += 1.5;
+  else if (tipToPalm > mcpToPalm * 0.7) score += 0.8;
+
+  // Distance-based: thumb tip far from index finger base
+  if (tipToIndex > wristToIndex * 0.5) score += 0.5;
+
+  if (score >= 3) return 'extended';
+  if (score >= 1.8) return 'half_curled';
   return 'curled';
 }
 
@@ -147,14 +201,16 @@ export function getFingerDirection(landmarks, fingerJoints) {
  */
 export function getThumbDirection(landmarks) {
   const wrist = landmarks[LANDMARK.WRIST];
+  const mcp = landmarks[LANDMARK.THUMB_MCP];
   const tip = landmarks[LANDMARK.THUMB_TIP];
 
-  const dx = tip.x - wrist.x;
-  const dy = tip.y - wrist.y;
+  // Use MCP→TIP vector for more accurate thumb direction
+  const dx = tip.x - mcp.x;
+  const dy = tip.y - mcp.y;
 
-  if (Math.abs(dy) > Math.abs(dx)) {
-    return dy < 0 ? 'up' : 'down';
-  }
+  // More generous "up" detection for thumb — it's often at an angle
+  if (dy < -0.01 && Math.abs(dy) > Math.abs(dx) * 0.5) return 'up';
+  if (dy > 0.01 && Math.abs(dy) > Math.abs(dx) * 0.5) return 'down';
   return dx > 0 ? 'right' : 'left';
 }
 
@@ -188,9 +244,22 @@ export function getAllFingerStates(landmarks) {
 }
 
 /**
- * Count the number of extended fingers.
+ * Count the number of extended fingers (including half_curled as 0.5).
  */
 export function countExtendedFingers(landmarks) {
+  const states = getAllFingerStates(landmarks);
+  let count = 0;
+  for (const finger of Object.values(states)) {
+    if (finger.curl === 'extended') count++;
+    else if (finger.curl === 'half_curled') count += 0.5;
+  }
+  return count;
+}
+
+/**
+ * Count strictly extended fingers (not half curled).
+ */
+export function countStrictlyExtended(landmarks) {
   const states = getAllFingerStates(landmarks);
   let count = 0;
   for (const finger of Object.values(states)) {

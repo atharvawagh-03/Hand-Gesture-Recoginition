@@ -1,8 +1,8 @@
 /**
  * App.jsx — Main application layout and orchestration
  * 
- * Two-panel layout: Camera Feed (left) + Output Panel (right)
- * With Navbar, StatusBar, SettingsPanel, and OnboardingOverlay
+ * UPDATED: Multi-hand support throughout the data pipeline.
+ * Passes allHands array to CameraFeed and classifier.
  */
 
 import { useEffect } from 'react';
@@ -44,22 +44,23 @@ export default function App() {
     retry: retryCamera,
   } = useCamera(selectedCamera);
 
-  // Hand detection
+  // Hand detection — returns ALL hands
   const {
-    landmarks,
-    handedness,
+    allHands,
+    handCount,
     fps,
     isModelLoaded,
     isDetecting,
     error: detectorError,
   } = useHandDetector(videoRef, isCameraActive);
 
-  // Gesture classification
+  // Gesture classification — processes ALL hands
   const {
     currentGesture,
     confidence,
     rawResult,
-  } = useGestureClassifier(landmarks);
+    perHandResults,
+  } = useGestureClassifier(allHands);
 
   // Text-to-Speech
   const { speak } = useTTS();
@@ -72,6 +73,11 @@ export default function App() {
   }, [currentGesture, speak]);
 
   const hasError = cameraError || detectorError;
+
+  // Derive handedness string for status bar
+  const handednessStr = allHands.length > 0
+    ? allHands.map(h => h.handedness).join(' + ')
+    : null;
 
   return (
     <div className="app" id="app">
@@ -102,9 +108,10 @@ export default function App() {
             <div className="app__camera-wrapper">
               <CameraFeed
                 videoRef={videoRef}
-                landmarks={landmarks}
+                allHands={allHands}
                 isDetecting={isDetecting}
                 mirrorMode={mirrorMode}
+                perHandResults={perHandResults}
               />
               <HandGuide visible={!isDetecting && isCameraActive && isModelLoaded} />
 
@@ -139,7 +146,7 @@ export default function App() {
         fps={fps}
         isDetecting={isDetecting}
         isModelLoaded={isModelLoaded}
-        handedness={handedness}
+        handedness={handednessStr}
       />
 
       <SettingsPanel cameraDevices={cameraDevices} />

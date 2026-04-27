@@ -1,17 +1,18 @@
 /**
- * useGestureClassifier.js — Gesture classification hook
+ * useGestureClassifier.js — Multi-hand gesture classification hook
  * 
- * Takes raw landmarks from useHandDetector, feeds them through
- * the heuristic classifier, and manages cooldown + history.
+ * UPDATED: Classifies ALL detected hands independently.
+ * Each hand gets its own motion tracker, cooldown state, and result.
+ * Returns the best gesture across all hands for the output display.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { classifyGesture } from '../lib/gestureRules.js';
 import { MotionTracker } from '../lib/motionTracker.js';
 import gestureConfig from '../config/gestures.json';
 import useSettingsStore from '../store/useSettingsStore.js';
 
-export default function useGestureClassifier(landmarks) {
+export default function useGestureClassifier(allHands) {
   const confidenceThreshold = useSettingsStore(s => s.confidenceThreshold);
   const cooldownDuration = useSettingsStore(s => s.cooldownDuration);
   const addGestureToHistory = useSettingsStore(s => s.addGestureToHistory);
@@ -20,12 +21,15 @@ export default function useGestureClassifier(landmarks) {
   const [confidence, setConfidence] = useState(0);
   const [isRecognizing, setIsRecognizing] = useState(false);
   const [rawResult, setRawResult] = useState(null);
+  const [perHandResults, setPerHandResults] = useState([]);
 
-  const motionTrackerRef = useRef(new MotionTracker());
+  // Per-hand tracking state (keyed by hand index 0/1)
+  const motionTrackersRef = useRef([new MotionTracker(), new MotionTracker()]);
   const lastGestureRef = useRef(null);
   const lastGestureTimeRef = useRef(0);
   const stableCountRef = useRef(0);
   const lastClassRef = useRef(null);
+  const clearTimeoutRef = useRef(null);
 
   // Gesture config lookup
   const gestureMap = useMemo(() => {
@@ -34,74 +38,119 @@ export default function useGestureClassifier(landmarks) {
     return map;
   }, []);
 
-  // Classification logic
+  // Classification logic — runs every frame
   useEffect(() => {
-    if (!landmarks) {
-      motionTrackerRef.current.clear();
+    if (!allHands || allHands.length === 0) {
+      // Clear motion trackers when no hands
+      motionTrackersRef.current[0].clear();
+      motionTrackersRef.current[1].clear();
       setRawResult(null);
+      setPerHandResults([]);
+
       // Keep displaying last gesture for a moment, then clear
-      const timeout = setTimeout(() => {
+      if (clearTimeoutRef.current) clearTimeout(clearTimeoutRef.current);
+      clearTimeoutRef.current = setTimeout(() => {
         setCurrentGesture(null);
         setConfidence(0);
         setIsRecognizing(false);
       }, 800);
-      return () => clearTimeout(timeout);
+      return () => {
+        if (clearTimeoutRef.current) clearTimeout(clearTimeoutRef.current);
+      };
     }
 
-    // Feed landmarks to motion tracker
-    motionTrackerRef.current.addFrame(landmarks);
+    // Cancel pending clear
+    if (clearTimeoutRef.current) {
+      clearTimeout(clearTimeoutRef.current);
+      clearTimeoutRef.current = null;
+    }
 
-    // Classify
-    const result = classifyGesture(landmarks, motionTrackerRef.current);
-    setRawResult(result);
+    // Classify EACH hand independently
+    const handResults = [];
 
-    if (!result || result.confidence < confidenceThreshold) {
-      // Below threshold — show as low confidence but don't fire
+    for (let i = 0; i < allHands.length; i++) {
+      const hand = allHands[i];
+      const tracker = motionTrackersRef.current[i];
+
+      // Feed landmarks to this hand's motion tracker
+      tracker.addFrame(hand.landmarks);
+
+      // Classify
+      const result = classifyGesture(hand.landmarks, tracker);
       if (result) {
-        setConfidence(result.confidence);
+        handResults.push({
+          ...result,
+          handIndex: i,
+          handedness: hand.handedness,
+        });
       }
+    }
+
+    // Clear motion tracker for hands that disappeared
+    for (let i = allHands.length; i < 2; i++) {
+      motionTrackersRef.current[i].clear();
+    }
+
+    setPerHandResults(handResults);
+
+    // Pick the best result across all hands
+    if (handResults.length === 0) {
+      setRawResult(null);
       stableCountRef.current = 0;
       lastClassRef.current = null;
       return;
     }
 
-    // Stability check: require same gesture for 3 consecutive frames
-    if (result.id === lastClassRef.current) {
+    handResults.sort((a, b) => b.confidence - a.confidence);
+    const bestResult = handResults[0];
+    setRawResult(bestResult);
+
+    if (bestResult.confidence < confidenceThreshold) {
+      // Below threshold — show confidence but don't fire
+      setConfidence(bestResult.confidence);
+      stableCountRef.current = 0;
+      lastClassRef.current = null;
+      return;
+    }
+
+    // Stability check: require same gesture for 2 consecutive frames (reduced from 3)
+    if (bestResult.id === lastClassRef.current) {
       stableCountRef.current++;
     } else {
       stableCountRef.current = 1;
-      lastClassRef.current = result.id;
+      lastClassRef.current = bestResult.id;
     }
 
-    if (stableCountRef.current < 3) return;
+    if (stableCountRef.current < 2) return;
 
     // Cooldown check
     const now = Date.now();
     if (
-      result.id === lastGestureRef.current &&
+      bestResult.id === lastGestureRef.current &&
       now - lastGestureTimeRef.current < cooldownDuration * 1000
     ) {
       // Same gesture within cooldown — update confidence but don't re-fire
-      setConfidence(result.confidence);
+      setConfidence(bestResult.confidence);
       return;
     }
 
     // Fire gesture!
-    const gestureInfo = gestureMap[result.id];
+    const gestureInfo = gestureMap[bestResult.id];
     if (gestureInfo) {
       setCurrentGesture(gestureInfo);
-      setConfidence(result.confidence);
+      setConfidence(bestResult.confidence);
       setIsRecognizing(true);
-      addGestureToHistory(gestureInfo, result.confidence);
-      lastGestureRef.current = result.id;
+      addGestureToHistory(gestureInfo, bestResult.confidence);
+      lastGestureRef.current = bestResult.id;
       lastGestureTimeRef.current = now;
     }
-  }, [landmarks, confidenceThreshold, cooldownDuration, gestureMap, addGestureToHistory]);
+  }, [allHands, confidenceThreshold, cooldownDuration, gestureMap, addGestureToHistory]);
 
   return {
     currentGesture,
     confidence,
     isRecognizing,
     rawResult,
+    perHandResults, // Per-hand classification results for overlay display
   };
 }

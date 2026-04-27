@@ -1,8 +1,8 @@
 /**
  * useHandDetector.js — MediaPipe HandLandmarker integration hook
  * 
- * Initializes the MediaPipe Tasks Vision HandLandmarker and runs
- * real-time detection on video frames using requestAnimationFrame.
+ * UPDATED: Returns ALL detected hands (up to 2), not just the first.
+ * Each hand includes its landmarks and handedness label.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -15,8 +15,8 @@ export default function useHandDetector(videoRef, isVideoActive) {
   const animationFrameRef = useRef(null);
   const lastTimestampRef = useRef(-1);
 
-  const [landmarks, setLandmarks] = useState(null);
-  const [handedness, setHandedness] = useState(null);
+  // Now stores arrays of hands
+  const [allHands, setAllHands] = useState([]);
   const [fps, setFps] = useState(0);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
@@ -43,9 +43,9 @@ export default function useHandDetector(videoRef, isVideoActive) {
           },
           runningMode: 'VIDEO',
           numHands: 2,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
+          minHandDetectionConfidence: 0.4,
+          minHandPresenceConfidence: 0.4,
+          minTrackingConfidence: 0.4,
         });
 
         if (cancelled) {
@@ -97,12 +97,16 @@ export default function useHandDetector(videoRef, isVideoActive) {
       const results = handLandmarker.detectForVideo(video, now);
 
       if (results.landmarks && results.landmarks.length > 0) {
-        setLandmarks(results.landmarks[0]); // Primary hand
-        setHandedness(results.handedness?.[0]?.[0]?.categoryName || null);
+        // Build array of all detected hands
+        const hands = results.landmarks.map((lm, i) => ({
+          landmarks: lm,
+          handedness: results.handedness?.[i]?.[0]?.categoryName || 'Unknown',
+          index: i,
+        }));
+        setAllHands(hands);
         setIsDetecting(true);
       } else {
-        setLandmarks(null);
-        setHandedness(null);
+        setAllHands([]);
         setIsDetecting(false);
       }
 
@@ -138,8 +142,8 @@ export default function useHandDetector(videoRef, isVideoActive) {
   }, [isModelLoaded, isVideoActive, detect]);
 
   return {
-    landmarks,
-    handedness,
+    allHands,       // Array of { landmarks, handedness, index }
+    handCount: allHands.length,
     fps,
     isModelLoaded,
     isDetecting,
